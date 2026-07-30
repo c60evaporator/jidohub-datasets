@@ -50,7 +50,11 @@ CAN bus は高レートで sample の timestamp と一致しないため、最�
 ``None`` を返し、遠いメッセージを流用しない（:func:`nearest_can_message`）。"""
 
 LIDAR_FIELDS: tuple[str, ...] = ("x", "y", "z", "intensity", "ring")
-"""nuScenes の LiDAR 点群の列名。devkit は ``(5, N)`` で返す。"""
+"""nuScenes の LiDAR 点群の列名。
+
+生 ``.pcd.bin`` の 5 列に対応する（:data:`NUSCENES_LIDAR_COLUMNS`）。
+devkit の ``LidarPointCloud.from_file`` は ``ring`` を落として 4 列にするため使わない。
+"""
 
 _TURN_THRESHOLD_M = 2.0
 """走行指令を左折 / 右折と判定する横方向変位のしきい値[m]。
@@ -117,17 +121,17 @@ def box_from_annotation(
     Returns:
         **ego 座標系**の :class:`Box3D`。
     """
+    translation = np.asarray(translation_global, dtype=np.float64)
+    rotation = np.asarray(rotation_global, dtype=np.float64)
     global_to_ego = invert_transform(ego_to_global)
     rotation_matrix = global_to_ego[:3, :3]
 
-    center_ego = rotation_matrix @ np.asarray(translation_global, dtype=np.float64)
+    center_ego = rotation_matrix @ translation
     center_ego += global_to_ego[:3, 3]
 
     # 姿勢も ego 座標系へ回す。回転行列の合成をクォータニオンに戻さず、
     # Box3D.rotation にはクォータニオンが必要なため行列から変換する
-    orientation_global = quaternion_to_rotation_matrix(
-        np.asarray(rotation_global, dtype=np.float64)
-    )
+    orientation_global = quaternion_to_rotation_matrix(rotation)
     rotation_ego = _quaternion_from_rotation_matrix(rotation_matrix @ orientation_global)
 
     velocity_ego: np.ndarray | None = None

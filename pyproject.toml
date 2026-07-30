@@ -51,6 +51,7 @@ include = [
 
 [tool.ruff]
 line-length = 100
+target-version = "py310"
 src = ["src", "tests", "scripts"]
 
 [tool.ruff.lint]
@@ -65,6 +66,7 @@ testpaths = ["tests"]
 [tool.mypy]
 # 型チェックの対象バージョンは 3.12（core と同じ。numpy>=2.3 の型スタブが
 # PEP 695 の `type` 文を使うため）。ランタイムの 3.10 互換は pytest マトリクスで担保。
+# TODO: numpy の型スタブが 3.10 でパースできるようになったら python_version を 3.10 に戻す。
 python_version = "3.12"
 disallow_untyped_defs = true
 ignore_missing_imports = true
@@ -77,7 +79,7 @@ files = ["src", "tests", "scripts"]
 # numpy 配列演算は型注釈が付けきれないため、変換モジュールに限定して緩和する。
 # 全体無効化はしない（CLAUDE.md 2.1）。
 module = ["jidohub.datasets.nuscenes.conversions"]
-disable_error_code = ["no-any-return", "index", "arg-type", "assignment"]
+disable_error_code = ["no-any-return"]
 
 [[tool.mypy.overrides]]
 # テストは fixture 引数が未注釈で、スキーマの Optional フィールドへのアクセスで

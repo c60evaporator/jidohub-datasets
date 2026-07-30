@@ -12,6 +12,7 @@ numpy は :func:`read_lidar_points` の生ファイル読み込み（``np.fromfi
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +42,8 @@ from jidohub.datasets.nuscenes.conversions import (
     points_from_pcd_bin,
     transform_from_pose,
 )
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["NuScenesAdapter", "read_image_bytes", "read_lidar_points"]
 
@@ -106,6 +109,7 @@ class NuScenesAdapter(DatasetAdapter):
         self.command_horizon_s = command_horizon_s
         # instance_token -> int の写像。Adapter 全体で一貫（docstring 参照）。
         self._track_ids: dict[str, int] = {}
+        self._can_cache: dict[tuple[str, str], list | None] = {}
 
     # -----------------------------------------------------------------
     # DatasetAdapter の実装
@@ -296,6 +300,21 @@ class NuScenesAdapter(DatasetAdapter):
             timestamp=sd["timestamp"],
         )
 
+    def _can_messages(self, scene_name: str, message_name: str) -> list | None:
+        """CAN bus メッセージをシーン単位でキャッシュする。
+
+        devkit の get_messages は呼ぶたびに JSON を読み直すため、
+        メモ化しないとサンプル数に比例してファイル I/O が発生する。
+        """
+        key = (scene_name, message_name)
+        if key not in self._can_cache:
+            try:
+                self._can_cache[key] = self.can_bus.get_messages(scene_name, message_name)
+            except Exception as error:
+                logger.debug("CAN bus unavailable for %s/%s: %s", scene_name, message_name, error)
+                self._can_cache[key] = None
+        return self._can_cache[key]
+
     def _build_ego_state(self, sample: dict) -> EgoState | None:
         """CAN bus 情報から :class:`EgoState` を作る。
 
@@ -315,16 +334,20 @@ class NuScenesAdapter(DatasetAdapter):
         scene = self.nusc.get("scene", sample["scene_token"])
         scene_name = scene["name"]
         timestamp = sample["timestamp"]
-        try:
-            pose_messages = self.can_bus.get_messages(scene_name, "pose")
-            monitor_messages = self.can_bus.get_messages(scene_name, "vehicle_monitor")
-        except Exception:
-            # 該当シーンの CAN bus データが無い場合、devkit は例外を送出する。
+
+        # 該当シーンの CAN bus データが無い場合、_can_messages が None を返す。
+        pose_messages = self._can_messages(scene_name, "pose")
+        if pose_messages is None:
             return None
+
         pose_msg = nearest_can_message(pose_messages, timestamp)
         if pose_msg is None:
             return None
-        monitor_msg = nearest_can_message(monitor_messages, timestamp)
+
+        monitor_messages = self._can_messages(scene_name, "vehicle_monitor")
+        monitor_msg = (
+            None if monitor_messages is None else nearest_can_message(monitor_messages, timestamp)
+        )
         steering_deg = None if monitor_msg is None else monitor_msg["steering"]
         return ego_state_from_can(pose_msg, steering_deg)
 
