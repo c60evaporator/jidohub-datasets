@@ -18,17 +18,36 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import numpy as np
-
 from jidohub.core.geometry import invert_transform, quaternion_to_rotation_matrix
-from jidohub.core.schemas import Box3D, DrivingCommand
+from jidohub.core.schemas import Box3D, DrivingCommand, EgoState
 
 __all__ = [
     "LIDAR_FIELDS",
+    "NUSCENES_LIDAR_COLUMNS",
     "transform_from_pose",
     "box_from_annotation",
     "points_from_devkit",
+    "points_from_pcd_bin",
     "driving_command_from_future_positions",
+    "intrinsic_from_devkit",
+    "nearest_can_message",
+    "ego_state_from_can",
+    "future_ego_positions",
 ]
+
+NUSCENES_LIDAR_COLUMNS = 5
+"""nuScenes の LiDAR ``.pcd.bin`` の 1 点あたりの列数。
+
+生ファイルは ``x, y, z, intensity, ring_index`` の 5 列。devkit の
+``LidarPointCloud.from_file`` は ``ring_index`` を切り捨てて 4 列にしてしまうため、
+本リポジトリは生ファイルを直接読み、5 列すべてを保持する（:func:`points_from_pcd_bin`）。"""
+
+_CAN_MATCH_TOLERANCE_US = 500_000
+"""CAN bus メッセージを sample に対応付けるときの許容時刻差[μs]（0.5 秒）。
+
+CAN bus は高レートで sample の timestamp と一致しないため、最も近いメッセージを
+選ぶ。ただし差がこの値を超える場合は「対応するメッセージが無い」とみなして
+``None`` を返し、遠いメッセージを流用しない（:func:`nearest_can_message`）。"""
 
 LIDAR_FIELDS: tuple[str, ...] = ("x", "y", "z", "intensity", "ring")
 """nuScenes の LiDAR 点群の列名。devkit は ``(5, N)`` で返す。"""
@@ -157,6 +176,31 @@ def points_from_devkit(points: np.ndarray) -> np.ndarray:
     return np.ascontiguousarray(array.T, dtype=np.float32)
 
 
+def points_from_pcd_bin(raw: np.ndarray) -> np.ndarray:
+    """nuScenes の ``.pcd.bin``（float32 フラット配列）を ``(N, 5)`` に整形する。
+
+    devkit の ``LidarPointCloud.from_file`` は ``ring_index`` を切り捨てて ``(4, N)`` を
+    返すため使わない。生ファイルは ``x, y, z, intensity, ring_index`` の 5 列で、
+    ここでは 5 列すべてを保持する（CLAUDE.md 3 章）。ファイルは点ごとに 5 値が連続する
+    行優先レイアウトなので、単に ``(-1, 5)`` へ整形すればよく**転置は不要**。
+
+    Args:
+        raw: ``np.fromfile(..., dtype=np.float32)`` で読んだ 1 次元 float32 配列。
+
+    Returns:
+        shape ``(N, 5)``、``np.float32`` の C 連続配列。列は
+        ``x, y, z, intensity, ring_index``（:data:`LIDAR_FIELDS`）。
+    """
+    array = np.asarray(raw)
+    if array.size % NUSCENES_LIDAR_COLUMNS != 0:
+        raise ValueError(
+            f"nuScenes lidar buffer length {array.size} is not a multiple of "
+            f"{NUSCENES_LIDAR_COLUMNS} (expected columns x, y, z, intensity, ring_index)"
+        )
+    points = array.reshape(-1, NUSCENES_LIDAR_COLUMNS)
+    return np.ascontiguousarray(points, dtype=np.float32)
+
+
 def driving_command_from_future_positions(
     future_positions_ego: np.ndarray,
     threshold_m: float = _TURN_THRESHOLD_M,
@@ -188,6 +232,124 @@ def driving_command_from_future_positions(
     if lateral < -threshold_m:
         return DrivingCommand.TURN_RIGHT
     return DrivingCommand.GO_STRAIGHT
+
+
+def intrinsic_from_devkit(camera_intrinsic: Sequence[Sequence[float]] | np.ndarray) -> np.ndarray:
+    """devkit の ``calibrated_sensor["camera_intrinsic"]`` を ``(3, 3)`` の内部行列に変換する。
+
+    devkit は入れ子リストで返す。:class:`~jidohub.core.schemas.CameraFrame` は
+    ``np.float64`` の ``(3, 3)`` を要求するため、ここで変換して adapter を numpy 非依存に保つ
+    （計算式を adapter に書かない。CLAUDE.md 2.1）。
+
+    Args:
+        camera_intrinsic: shape ``(3, 3)`` 相当。devkit のカメラ内部パラメータ。
+
+    Returns:
+        shape ``(3, 3)``、``np.float64``。
+    """
+    matrix = np.asarray(camera_intrinsic, dtype=np.float64)
+    if matrix.shape != (3, 3):
+        raise ValueError(f"camera_intrinsic must have shape (3, 3), got {matrix.shape}")
+    return matrix
+
+
+def nearest_can_message(
+    messages: Sequence[dict],
+    timestamp_us: int,
+    max_dt_us: int = _CAN_MATCH_TOLERANCE_US,
+) -> dict | None:
+    """CAN bus メッセージ列から、指定時刻に最も近いメッセージを選ぶ。
+
+    nuScenes の CAN bus は高レート（数十〜数百 Hz）で、``sample`` の timestamp と
+    厳密には一致しない。最も近いメッセージを返すが、**時刻差が ``max_dt_us`` を超える
+    場合は ``None`` を返す**（遠いメッセージを流用すると、静止直前・発進直後などで
+    誤った運動状態を与えるため）。空の列でも ``None``。
+
+    Args:
+        messages: 各要素が ``"utime"``[μs] を持つメッセージ辞書の列。
+        timestamp_us: 対応付けたい基準時刻[μs]。
+        max_dt_us: 許容する最大時刻差[μs]。既定 0.5 秒。
+
+    Returns:
+        最も近いメッセージ辞書。該当が無い（空、または全て閾値外）場合は ``None``。
+    """
+    best: dict | None = None
+    best_dt: int | None = None
+    for message in messages:
+        dt = abs(int(message["utime"]) - int(timestamp_us))
+        if best_dt is None or dt < best_dt:
+            best_dt = dt
+            best = message
+    if best is None or best_dt is None or best_dt > max_dt_us:
+        return None
+    return best
+
+
+def ego_state_from_can(
+    pose_msg: dict,
+    steering_deg: float | None = None,
+) -> EgoState:
+    """CAN bus の ``pose`` / ``vehicle_monitor`` メッセージから :class:`EgoState` を作る。
+
+    - ``velocity`` / ``acceleration`` / ``angular_velocity`` は ``pose`` メッセージの
+      ``vel`` / ``accel`` / ``rotation_rate`` をそのまま使う。これらは **ego 座標系・SI 単位**
+      （m/s, m/s², rad/s）なので単位・座標変換は不要。``angular_velocity`` の z 成分がヨーレート。
+    - ``steering_angle`` は ``vehicle_monitor`` の ``steering``（**度**）を**ラジアン**へ変換して入れる。
+      これは**ステアリングホイール角**であってタイヤの切れ角ではない点に注意
+      （ホイールとタイヤの比は車両依存で、ここでは補正しない）。符号は CAN の生値に従う。
+
+    Args:
+        pose_msg: ``vel`` / ``accel`` / ``rotation_rate``（各 shape ``(3,)``）を持つ pose メッセージ。
+        steering_deg: ステアリングホイール角[度]。``None`` なら ``steering_angle`` を設定しない。
+
+    Returns:
+        :class:`~jidohub.core.schemas.EgoState`。
+    """
+    velocity = np.asarray(pose_msg["vel"], dtype=np.float64)
+    acceleration = np.asarray(pose_msg["accel"], dtype=np.float64)
+    angular_velocity = np.asarray(pose_msg["rotation_rate"], dtype=np.float64)
+    steering_angle = None if steering_deg is None else float(np.deg2rad(steering_deg))
+    return EgoState(
+        velocity=velocity,
+        acceleration=acceleration,
+        angular_velocity=angular_velocity,
+        steering_angle=steering_angle,
+    )
+
+
+def future_ego_positions(
+    reference_ego_to_global: np.ndarray,
+    future_ego_to_global: Sequence[np.ndarray],
+) -> np.ndarray:
+    """将来の ``ego_to_global`` 群を、基準時刻の ego 座標系での自車位置列に変換する。
+
+    各将来フレームの ego 原点（= ``ego_to_global[:3, 3]``、その時刻の自車位置を global で
+    表したもの）を、基準時刻の ego 座標系へ移して ``(x, y)`` を取り出す。
+
+    走行指令の推定（:func:`driving_command_from_future_positions` の入力）に使うほか、
+    プランニング評価の GT 軌跡（``PlanningOutput.trajectory`` と同じ ego 座標・``(T, 2)``）
+    にもそのまま使える汎用部品。
+
+    Args:
+        reference_ego_to_global: shape ``(4, 4)``。基準時刻の ego → global 変換。
+        future_ego_to_global: 各 shape ``(4, 4)`` の将来フレームの ego → global 変換の列
+            （時刻昇順を想定）。
+
+    Returns:
+        shape ``(T, 2)``、``np.float64``。基準 ego 座標系での将来自車位置[m]。
+        空入力では shape ``(0, 2)``。
+    """
+    global_to_reference = invert_transform(np.asarray(reference_ego_to_global, dtype=np.float64))
+    rotation = global_to_reference[:3, :3]
+    translation = global_to_reference[:3, 3]
+    positions = []
+    for transform in future_ego_to_global:
+        origin_global = np.asarray(transform, dtype=np.float64)[:3, 3]
+        position_ref = rotation @ origin_global + translation
+        positions.append(position_ref[:2])
+    if not positions:
+        return np.zeros((0, 2), dtype=np.float64)
+    return np.asarray(positions, dtype=np.float64)
 
 
 def _quaternion_from_rotation_matrix(matrix: np.ndarray) -> np.ndarray:

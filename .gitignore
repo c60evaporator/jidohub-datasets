@@ -1,0 +1,14 @@
+__pycache__/
+.venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.DS_Store
+
+# nuScenes 由来の生成物。実画像のバイト列を含み、再配布に制約のある
+# ライセンス（非商用）のためコミットしない（scripts/make_fixtures.py 参照）。
+fixtures/

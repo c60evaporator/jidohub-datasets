@@ -104,8 +104,8 @@ Adapter で ego に変換して渡さないこと。
 | ボックス寸法 | `size = [width, length, height]` | `size = (length, width, height)` | **入れ替える**。`Box3D.from_dimensions()` を使えば取り違えない |
 | ボックス座標系 | global | ego（既定） | `inv(ego_to_global)` を適用 |
 | 速度 | global 座標系、値が `NaN` になることがある | `frame` と同じ座標系 | 回転成分のみ適用。`NaN` は `None` に落とす |
-| 点群の形状 | `(5, N)`（devkit は列優先） | `(N, C)` | **転置する** |
-| 点群の列 | x, y, z, intensity, ring_index | 先頭 3 列が x, y, z | `fields` に名前を宣言する |
+| 点群の形状 | 生 `.pcd.bin` は点ごとに 5 値が連続（行優先） | `(N, C)` | 生ファイルを読み `(-1, 5)` に整形（**転置は不要**）。`points_from_pcd_bin` を使う |
+| 点群の列 | x, y, z, intensity, ring_index（生ファイルは 5 列） | 先頭 3 列が x, y, z | `fields` に名前を宣言する。**devkit の `LidarPointCloud.from_file` は `ring_index` を切り捨てて 4 列にするため使わない**（`nbr_dims()==4`）。生 `.pcd.bin` を直接読み 5 列を保持する |
 | 時刻 | マイクロ秒 int | マイクロ秒 int | 変換不要 |
 | 回転表現 | quaternion `(w, x, y, z)` | 同じ | 変換不要 |
 | ボックス中心 | 幾何中心 | 幾何中心 | 変換不要 |

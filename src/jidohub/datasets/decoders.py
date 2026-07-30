@@ -13,10 +13,10 @@ core は画像コーデックに依存しないため、``EncodedImage`` のデ�
 
 from __future__ import annotations
 
+import importlib.util
 import io
 
 import numpy as np
-
 from jidohub.core.schemas import EncodedImage, get_image_decoder, register_image_decoder
 
 __all__ = ["pillow_decoder", "register_default_decoder"]
@@ -39,12 +39,22 @@ def pillow_decoder(encoded: EncodedImage) -> np.ndarray:
 def register_default_decoder(force: bool = False) -> bool:
     """既定デコーダ（Pillow）を登録する。
 
+    Pillow が import できる場合のみ登録する。Pillow の無い環境で登録してしまうと、
+    ``frame.image`` アクセス時に ``pillow_decoder`` 内部で ``ImportError`` が送出され、
+    core の :class:`~jidohub.core.schemas.ImageDecodeError`（「デコーダが未登録」）に
+    ならないため、利用者に原因が伝わらない（依頼書 タスク 1.2）。
+    Pillow が無い場合は登録せず ``False`` を返し、``frame.image`` は
+    「デコーダ未登録」の ``ImageDecodeError`` になる。
+
     Args:
         force: ``True`` なら既存の登録を上書きする。
 
     Returns:
-        登録した場合は ``True``、既存の登録を尊重してスキップした場合は ``False``。
+        登録した場合は ``True``、既存の登録を尊重してスキップした場合、
+        または Pillow が無く登録できなかった場合は ``False``。
     """
+    if importlib.util.find_spec("PIL") is None:
+        return False
     if not force and get_image_decoder() is not None:
         return False
     register_image_decoder(pillow_decoder)
