@@ -5,6 +5,8 @@ on:
   pull_request:
 
 jobs:
+  # メインレーン: devkit なし。conversions / adapter が devkit 非依存であることの検証
+  # （CLAUDE.md 2.1）。core は PyPI 未公開なので checkout して先に editable install する。
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -14,30 +16,78 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: jidohub-datasets
+
+      - uses: actions/checkout@v4
+        with:
+          repository: c60evaporator/jidohub-core
+          path: jidohub-core
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install jidohub-core
-        # core は PyPI 未公開のため、同一 org のリポジトリから入れる。
-        # PyPI 公開後は `pip install jidohub-core` に置き換える。
-        run: python -m pip install "jidohub-core @ git+https://github.com/${{ github.repository_owner }}/jidohub-core.git"
+      - name: Install jidohub-core (先に editable install)
+        # 順序が逆だと pip が PyPI を探しに行って失敗する（CLAUDE.md 1 章）。
+        run: python -m pip install -e ./jidohub-core
 
-      - name: Install (dev のみ; nuscenes-devkit は入れない)
-        # devkit を入れずに全テストが通ること = conversions / adapter が
-        # devkit 非依存であることの検証（CLAUDE.md 2.1 / 依頼書 完了条件 3）。
-        run: python -m pip install -e '.[dev]'
+      - name: Install jidohub-datasets (dev のみ; devkit は入れない)
+        run: python -m pip install -e './jidohub-datasets[dev]'
+
+      - name: Verify core schema version (テスト前に整合を確認)
+        # 古い core を掴んだ場合、分かりにくいテスト失敗ではなく明示エラーで落とす。
+        # EncodedImage を条件に含めるのは画像対応前の core を即座に弾くため（CLAUDE.md 1 章）。
+        run: python -c "from jidohub.core.schemas import SCHEMA_VERSION, EncodedImage; print(SCHEMA_VERSION)"
 
       - name: ruff check
+        working-directory: jidohub-datasets
         run: ruff check .
 
       - name: ruff format --check
+        working-directory: jidohub-datasets
         run: ruff format --check .
 
       - name: mypy
+        working-directory: jidohub-datasets
         run: mypy
 
       - name: pytest
+        working-directory: jidohub-datasets
+        run: pytest
+
+  # 追加レーン: devkit あり。extra が解決すること、devkit 同居で全テストが通ることを確認する。
+  # Python を 3.10 に固定するのは、devkit が新しい Python への追従が遅れがちなため。
+  test-with-devkit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: jidohub-datasets
+
+      - uses: actions/checkout@v4
+        with:
+          repository: c60evaporator/jidohub-core
+          path: jidohub-core
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install jidohub-core (先に editable install)
+        run: python -m pip install -e ./jidohub-core
+
+      - name: Install jidohub-datasets (dev + nuscenes)
+        run: python -m pip install -e './jidohub-datasets[dev,nuscenes]'
+
+      - name: Verify no subpackage collision (別パスを指すこと)
+        # テストは devkit を monkeypatch するため、入れただけでは同居検証にならない。
+        # nuscenes と jidohub.datasets.nuscenes が別パスを指す = 名前衝突が無いことを確認。
+        run: python -c "import nuscenes; import jidohub.datasets.nuscenes as n; print(nuscenes.__file__); print(n.__file__)"
+
+      - name: pytest
+        working-directory: jidohub-datasets
         run: pytest

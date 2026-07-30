@@ -146,6 +146,12 @@ class NuScenesAdapter(DatasetAdapter):
             nuScenes ではセンサごとに取得時刻が異なり ego_pose も異なるため、
             どれを Sample 全体の代表とするかを決めておく必要がある。
             各センサ固有の時刻は ``CameraFrame.timestamp`` 等に保持する。
+
+        Note:
+            ``command`` は ``command_horizon_s`` を明示指定したときだけ埋まる。これは
+            将来 keyframe の自車位置から得た**推定値**であって正解ラベルではない
+            （実車では航法・経路計画から与えられる）。評価に用いる場合、この定義の
+            違いが結果に影響し得る（CLAUDE.md 2.6）。
         """
         return self._build_sample(sample_id, history_length=self.history_length)
 
@@ -301,7 +307,8 @@ class NuScenesAdapter(DatasetAdapter):
 
         取得できる場合の対応（詳細は :func:`ego_state_from_can`）
             - 速度・加速度・角速度は ``pose`` メッセージ（ego 座標系・SI 単位）から取る
-            - ``steering_angle`` は ``vehicle_monitor`` の ``steering``（度）を rad へ変換
+            - ``steering_angle`` は ``vehicle_monitor`` の ``steering``（度）を rad へ変換する。
+              これは**ステアリングホイール角**であってタイヤの切れ角ではない
         """
         if self.can_bus is None:
             return None

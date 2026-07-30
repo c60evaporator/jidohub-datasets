@@ -21,7 +21,8 @@ classifiers = [
 # torch は入れない。データセットの読み込みに学習フレームワークは不要であり、
 # torch なしで可視化・変換できることがプラットフォーム全体の前提（CLAUDE.md 1 章）。
 dependencies = [
-    "jidohub-core",
+    # PyPI 未公開。素の名前＋緩い下限で書く（VCS URL の直接参照は書かない。CLAUDE.md 1 章）。
+    "jidohub-core>=0.1",
     "numpy",
     "pillow",
 ]

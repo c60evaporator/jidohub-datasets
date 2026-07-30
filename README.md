@@ -18,6 +18,16 @@ jidohub は自動運転向けの Agent / Dataset / Interface 共有プラット�
 
 ## インストール
 
+**ローカル開発では `jidohub-core` を先に editable install する。** core は PyPI 未公開のため、
+順序が逆だと pip が PyPI を探しに行って失敗する（隣に `jidohub-core` を clone してある前提）。
+
+```bash
+pip install -e ../jidohub-core
+pip install -e '.[dev,nuscenes]'
+```
+
+PyPI 公開後は次のように入る（`nuscenes` extra は Adapter を使う場合のみ）。
+
 ```bash
 pip install jidohub-datasets            # 変換ロジック + Pillow デコーダ
 pip install 'jidohub-datasets[nuscenes]'  # nuscenes-devkit も入れる（Adapter を使う場合）
