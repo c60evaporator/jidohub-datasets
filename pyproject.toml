@@ -22,7 +22,8 @@ classifiers = [
 # torch なしで可視化・変換できることがプラットフォーム全体の前提（CLAUDE.md 1 章）。
 dependencies = [
     # PyPI 未公開。素の名前＋緩い下限で書く（VCS URL の直接参照は書かない。CLAUDE.md 1 章）。
-    "jidohub-core>=0.1",
+    # 0.x は minor 差も非互換。core 0.2 の Image / EncodedPixels に依存するため下限を上げる。
+    "jidohub-core>=0.2",
     "numpy",
     "pillow",
 ]

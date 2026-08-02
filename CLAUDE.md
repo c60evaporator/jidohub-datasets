@@ -54,7 +54,7 @@ src/
 
 **依存解決（jidohub-core との関係）。** `jidohub-core` は **PyPI に公開されていない**。
 
-- `pyproject.toml` には**素の名前**で書き、下限だけ緩く指定する（`jidohub-core>=0.1`）。
+- `pyproject.toml` には**素の名前**で書き、下限だけ緩く指定する（`jidohub-core>=0.2`）。
   `==` で固定すると core を触るたびに書き換えが必要になる。
 - **`git+https://...` の直接参照を書かない。** 依存解決のたびに GitHub のコピーが
   editable install を上書きし得るため、core を編集しながら datasets を開発する状況で
@@ -71,14 +71,15 @@ src/
 単独ステップで確認する。
 
 ```bash
-python -c "from jidohub.core.schemas import SCHEMA_VERSION, EncodedImage; print(SCHEMA_VERSION)"
+python -c "from jidohub.core.schemas import SCHEMA_VERSION, Image, EncodedPixels; print(SCHEMA_VERSION)"
 ```
 
-`EncodedImage` の import を条件に含めるのは、画像対応前の core を掴んだ場合に即座に落とすため。
+`Image` / `EncodedPixels` の import を条件に含めるのは、core 0.2 の画像再構成前の古い core を
+掴んだ場合に即座に落とすため。
 
-**過去の事故**: core を pull せずに作業した結果、`EncodedImage` が存在しないと判断され、
-`image_data` フィールドの新設と `SCHEMA_VERSION` の 0.2 への更新という**実装済みの設計とは別の
-設計**が提案されたことがある。「core の API が無い」と感じた場合、まず editable install の状態を疑う。
+**過去の事故**: core を pull せずに作業した結果、期待した画像スキーマが「存在しない」と判断され、
+独自フィールドの新設と `SCHEMA_VERSION` の繰り上げという**実装済みの設計とは別の設計**が提案された
+ことがある。「core の API が無い」と感じた場合、まず editable install の状態を疑う。
 
 ---
 
@@ -119,10 +120,13 @@ datasets 側で同等の型を定義したり、フィールドを追加した�
 
 ### 2.3 画像はデコードせずに運ぶ（既定）
 
-`Sample` を構築する際、画像は既定で `EncodedImage`（JPEG バイト列のまま）にする。
+`Sample` を構築する際、画像は既定で `EncodedPixels`（JPEG バイト列のまま）にする。
 
+- **画素・`intrinsic`・`distortion` は `Image` が保持する。`CameraFrame` は保持しない**
+  （core 0.2 でそれらの唯一の正が `Image` 側に移った）。`CameraFrame(image=Image(encoded=..., intrinsic=...), ...)`
+  の形で組み立てる。`CameraFrame.array` のようなショートカットは core に無いし、datasets 側でも作らない
 - nuScenes の画像はディスク上で既に JPEG。読んだバイト列をそのまま載せる
-- デコードは利用側が `frame.image` にアクセスした時点で初めて走る
+- デコードは利用側が `frame.image.array` にアクセスした時点で初めて走る
 - 生画素が必要な場合のみ `image_mode="pixels"` を指定できるようにする
 - **画像サイズは `sample_data` レコードの `width` / `height` を使う。**
   サイズを得るために画像を開かない
@@ -174,6 +178,7 @@ Adapter で ego に変換して渡さないこと。
 | 回転表現 | quaternion `(w, x, y, z)` | 同じ | 変換不要 |
 | ボックス中心 | 幾何中心 | 幾何中心 | 変換不要 |
 | 変換行列 | `translation` + `rotation` の組 | 4x4 同次変換行列 | 組み立てる。**向きに注意** |
+| カメラ内部パラメータ（intrinsic）の住所 | `calibrated_sensor.camera_intrinsic`（3x3） | **`Image` が保持**（`Image.intrinsic`）。`CameraFrame` は保持しない | `CameraFrame(image=Image(..., intrinsic=...))` で載せる。`CameraFrame` に `intrinsic=` は渡さない（core 0.2 で `Image` が唯一の正。`intrinsic` を落とすと `CameraFrame` が `ValueError`） |
 | CAN bus の速度・加速度・角速度 | `pose` メッセージの `vel` / `accel` / `rotation_rate`。**ego 座標系・SI 単位** | 同じ（ego 座標系） | 単位変換不要。速度は `vehicle_monitor` ではなく `pose` を使う |
 | ステアリング角 | `vehicle_monitor` の `steering`。**度**、かつステアリングホイール角（タイヤ切れ角ではない） | rad | 度→rad に変換し、ホイール角である旨を docstring に明記 |
 | CAN bus のサンプリング | 高レートで sample の timestamp と一致しない | — | 最近傍のメッセージを選ぶ。時刻差が一定（0.5 秒）を超える場合は流用せず `None` |

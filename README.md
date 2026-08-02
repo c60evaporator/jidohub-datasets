@@ -64,9 +64,10 @@ adapter = NuScenesAdapter(
 
 ### 画像の表現とデコーダの注入
 
-`get_sample` が返す画像は既定で **`encoded`**（JPEG バイト列のまま）です。生画素へのデコードは
-`frame.image` にアクセスした時点で初めて走り、以後キャッシュされます。プロセス境界を越える経路では
-`encoded` の方が約 1/15 のサイズで運べます。構築時に生画素が必要な場合は
+`get_sample` が返す `CameraFrame` は画素・`intrinsic` を `frame.image`（`Image`）に保持します。画像は
+既定で **`encoded`**（JPEG バイト列のまま）で、生画素へのデコードは `frame.image.array` にアクセスした
+時点で初めて走り、以後キャッシュされます。プロセス境界を越える経路では `encoded` の方が約 1/15 の
+サイズで運べます。構築時に生画素が必要な場合は
 `NuScenesAdapter(..., image_mode="pixels")` を指定します。nvJPEG など高速なデコーダを使いたい場合は、
 `jidohub.datasets` を import する前に `jidohub.core.schemas.register_image_decoder(...)` で登録すれば
 既定の Pillow デコーダは登録されません（上書きしない方針）。

@@ -38,8 +38,8 @@ jobs:
 
       - name: Verify core schema version (テスト前に整合を確認)
         # 古い core を掴んだ場合、分かりにくいテスト失敗ではなく明示エラーで落とす。
-        # EncodedImage を条件に含めるのは画像対応前の core を即座に弾くため（CLAUDE.md 1 章）。
-        run: python -c "from jidohub.core.schemas import SCHEMA_VERSION, EncodedImage; print(SCHEMA_VERSION)"
+        # Image / EncodedPixels を条件に含めるのは core 0.2 の画像再構成前を即座に弾くため（CLAUDE.md 1 章）。
+        run: python -c "from jidohub.core.schemas import SCHEMA_VERSION, Image, EncodedPixels; print(SCHEMA_VERSION)"
 
       - name: ruff check
         working-directory: jidohub-datasets

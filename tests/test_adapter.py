@@ -13,12 +13,12 @@ import math
 import numpy as np
 import pytest
 from jidohub.core.geometry import yaw_to_quaternion
-from jidohub.core.schemas import CoordinateFrame, DrivingCommand
-from PIL import Image
+from jidohub.core.schemas import CameraFrame, CoordinateFrame, DrivingCommand, Image
+from PIL import Image as PILImage
 
 from jidohub.datasets.nuscenes import adapter as adapter_module
 from jidohub.datasets.nuscenes.adapter import NuScenesAdapter, read_image_bytes
-from jidohub.datasets.nuscenes.conversions import points_from_pcd_bin
+from jidohub.datasets.nuscenes.conversions import intrinsic_from_devkit, points_from_pcd_bin
 
 IMAGE_W, IMAGE_H = 32, 24
 T0, T1, T2 = 1_000_000, 1_500_000, 2_000_000
@@ -62,7 +62,7 @@ def _ego_pose(token: str, x: float, y: float, yaw: float) -> dict:
 
 
 def _make_jpeg(path: str) -> None:
-    Image.new("RGB", (IMAGE_W, IMAGE_H), (120, 60, 200)).save(path, format="JPEG")
+    PILImage.new("RGB", (IMAGE_W, IMAGE_H), (120, 60, 200)).save(path, format="JPEG")
 
 
 def build_dataset(tmp_path, *, ego_xy: list[tuple[float, float]]) -> FakeNuScenes:
@@ -201,19 +201,40 @@ def test_ego_to_global_from_lidar_ego_pose(straight_nusc) -> None:
 def test_camera_default_encoded(straight_nusc) -> None:
     adapter = NuScenesAdapter(straight_nusc)
     frame = adapter.get_sample("s0").cameras["CAM_FRONT"]
-    assert frame.is_encoded is True
-    assert frame.height == IMAGE_H
-    assert frame.width == IMAGE_W
+    # core 0.2: 画素・サイズ・intrinsic は Image が保持する（CameraFrame は持たない）。
+    assert frame.image.is_encoded is True
+    assert frame.image.height == IMAGE_H
+    assert frame.image.width == IMAGE_W
 
 
 def test_camera_pixels_mode(straight_nusc) -> None:
     adapter = NuScenesAdapter(straight_nusc, image_mode="pixels")
     frame = adapter.get_sample("s0").cameras["CAM_FRONT"]
-    assert frame.is_encoded is False
-    assert frame.pixels is not None
-    assert frame.pixels.shape == (IMAGE_H, IMAGE_W, 3)
-    assert frame.height == IMAGE_H
-    assert frame.width == IMAGE_W
+    assert frame.image.is_encoded is False
+    assert frame.image.pixels is not None
+    assert frame.image.pixels.shape == (IMAGE_H, IMAGE_W, 3)
+    assert frame.image.height == IMAGE_H
+    assert frame.image.width == IMAGE_W
+
+
+def test_camera_intrinsic_carried_on_image(straight_nusc) -> None:
+    """intrinsic が Image へ正しく引き継がれること（Image 移設時の取り違え検出）。"""
+    adapter = NuScenesAdapter(straight_nusc)
+    frame = adapter.get_sample("s0").cameras["CAM_FRONT"]
+    # fixture の cs_cam.camera_intrinsic と一致すること。
+    expected = intrinsic_from_devkit([[1000.0, 0.0, 16.0], [0.0, 1000.0, 12.0], [0.0, 0.0, 1.0]])
+    assert frame.image.intrinsic is not None
+    np.testing.assert_allclose(frame.image.intrinsic, expected)
+
+
+def test_camera_frame_requires_intrinsic() -> None:
+    """intrinsic を持たない Image を CameraFrame に渡すと ValueError（core 契約の確認）。
+
+    Adapter が誤って intrinsic を落とすと、この契約に引っかかって即座に検出できる。
+    """
+    image = Image(pixels=np.zeros((2, 2, 3), dtype=np.uint8))  # intrinsic=None
+    with pytest.raises(ValueError):
+        CameraFrame(image=image, sensor_to_ego=np.eye(4), channel="CAM_FRONT")
 
 
 def test_lidar_points_kept_in_sensor_frame(straight_nusc) -> None:
@@ -380,7 +401,7 @@ def test_read_image_bytes_detects_jpeg(tmp_path) -> None:
 
 def test_read_image_bytes_detects_png(tmp_path) -> None:
     buffer = io.BytesIO()
-    Image.new("RGB", (4, 4)).save(buffer, format="PNG")
+    PILImage.new("RGB", (4, 4)).save(buffer, format="PNG")
     path = tmp_path / "a.png"
     path.write_bytes(buffer.getvalue())
     _data, image_format = read_image_bytes(path)

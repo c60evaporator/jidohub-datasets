@@ -24,7 +24,7 @@ __all__ = ["DatasetAdapter", "ImageMode"]
 ImageMode = Literal["encoded", "pixels"]
 """``Sample`` に載せる画像の表現。
 
-- ``"encoded"``（既定）: JPEG バイト列のまま。デコードは利用側の ``frame.image`` で走る
+- ``"encoded"``（既定）: JPEG バイト列のまま。デコードは利用側が ``frame.image.array`` に触れた時点で走る
 - ``"pixels"``: 構築時にデコードして生画素を載せる
 """
 

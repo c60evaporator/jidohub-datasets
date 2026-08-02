@@ -1,6 +1,6 @@
 """画像デコーダの実装と登録ポリシー。
 
-core は画像コーデックに依存しないため、``EncodedImage`` のデコードは
+core は画像コーデックに依存しないため、``EncodedPixels`` のデコードは
 利用側が :func:`jidohub.core.schemas.register_image_decoder` で注入する。
 本リポジトリは Pillow ベースの既定デコーダを提供する。
 
@@ -17,12 +17,12 @@ import importlib.util
 import io
 
 import numpy as np
-from jidohub.core.schemas import EncodedImage, get_image_decoder, register_image_decoder
+from jidohub.core.schemas import EncodedPixels, get_image_decoder, register_image_decoder
 
 __all__ = ["pillow_decoder", "register_default_decoder"]
 
 
-def pillow_decoder(encoded: EncodedImage) -> np.ndarray:
+def pillow_decoder(encoded: EncodedPixels) -> np.ndarray:
     """Pillow で符号化画像をデコードする。
 
     :data:`~jidohub.core.schemas.ImageDecoder` の契約通り、

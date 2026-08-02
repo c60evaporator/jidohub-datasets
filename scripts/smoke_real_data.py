@@ -89,18 +89,19 @@ def _check_images(samples) -> None:
     check("カメラ 6 枚", len(frames) == 6, f"{sorted(frames)}")
 
     front = frames["CAM_FRONT"]
-    check("既定で encoded", front.is_encoded, f"is_encoded={front.is_encoded}")
+    # core 0.2: 画素・サイズ・intrinsic は Image が保持する。
+    check("既定で encoded", front.image.is_encoded, f"is_encoded={front.image.is_encoded}")
     check(
         "画像サイズ 1600x900",
-        (front.width, front.height) == (1600, 900),
-        f"{front.width}x{front.height}",
+        (front.image.width, front.image.height) == (1600, 900),
+        f"{front.image.width}x{front.image.height}",
     )
 
     # デコードして宣言サイズと一致することを確認（デコーダの契約検証）
-    pixels = front.image
+    pixels = front.image.array
     check(
         "デコード結果が宣言サイズと一致",
-        pixels.shape == (front.height, front.width, 3) and pixels.dtype == np.uint8,
+        pixels.shape == (front.image.height, front.image.width, 3) and pixels.dtype == np.uint8,
         f"{pixels.shape} {pixels.dtype}",
     )
 
@@ -248,9 +249,9 @@ def _check_projection(samples, truths) -> None:
             point = ego_to_camera[:3, :3] @ box.center + ego_to_camera[:3, 3]
             if point[2] <= 0:  # カメラ後方
                 continue
-            uv = frame.intrinsic @ point
+            uv = frame.image.intrinsic @ point
             u, v = uv[0] / uv[2], uv[1] / uv[2]
-            if 0 <= u < frame.width and 0 <= v < frame.height:
+            if 0 <= u < frame.image.width and 0 <= v < frame.image.height:
                 hits += 1
 
     if total == 0:

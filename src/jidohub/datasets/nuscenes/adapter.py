@@ -23,7 +23,8 @@ from jidohub.core.schemas import (
     Detection3DOutput,
     DrivingCommand,
     EgoState,
-    EncodedImage,
+    EncodedPixels,
+    Image,
     ImageFormat,
     LidarSweep,
     Sample,
@@ -252,11 +253,15 @@ class NuScenesAdapter(DatasetAdapter):
         """カメラの ``sample_data`` から :class:`CameraFrame` を作る。
 
         - ``calibrated_sensor`` から :func:`transform_from_pose` で ``sensor_to_ego``
-        - ``camera_intrinsic`` を :func:`intrinsic_from_devkit` で ``intrinsic`` に入れる
+        - ``camera_intrinsic`` を :func:`intrinsic_from_devkit` で ``Image.intrinsic`` に入れる
+          （core 0.2 では画素・``intrinsic`` は :class:`Image` が保持し、``CameraFrame`` は持たない）
         - **画像サイズは ``sample_data`` の ``width`` / ``height`` を使う。**
           サイズを得るために画像を開かないこと（CLAUDE.md 2.3）
         - ``image_mode == "encoded"`` ならファイルのバイト列をそのまま
-          :meth:`EncodedImage.from_bytes` に渡す。デコードしない
+          :meth:`EncodedPixels.from_bytes` に渡す。デコードしない
+
+        :class:`Image` の組み立ては変換ロジックではないため adapter で行う
+        （``intrinsic_from_devkit`` の呼び出しは従来通り conversions 側）。
         """
         sd = self.nusc.get("sample_data", sample_data_token)
         calib = self.nusc.get("calibrated_sensor", sd["calibrated_sensor_token"])
@@ -265,19 +270,20 @@ class NuScenesAdapter(DatasetAdapter):
 
         data, image_format = read_image_bytes(self.nusc.get_sample_data_path(sample_data_token))
         # サイズは sample_data の値を使う（画像を開かない。CLAUDE.md 2.3）。
-        encoded = EncodedImage.from_bytes(
+        encoded = EncodedPixels.from_bytes(
             data, image_format, height=sd["height"], width=sd["width"]
         )
-        common = dict(
-            intrinsic=intrinsic,
+        if self.image_mode == "pixels":
+            # 明示的に生画素が要求された場合のみデコードする。
+            image = Image(pixels=decode_image(encoded), intrinsic=intrinsic)
+        else:
+            image = Image(encoded=encoded, intrinsic=intrinsic)
+        return CameraFrame(
+            image=image,
             sensor_to_ego=sensor_to_ego,
             channel=sd["channel"],
             timestamp=sd["timestamp"],
         )
-        if self.image_mode == "pixels":
-            # 明示的に生画素が要求された場合のみデコードする。
-            return CameraFrame(pixels=decode_image(encoded), **common)
-        return CameraFrame(encoded=encoded, **common)
 
     def _build_lidar_sweep(self, sample_data_token: str) -> LidarSweep:
         """LiDAR の ``sample_data`` から :class:`LidarSweep` を作る。
