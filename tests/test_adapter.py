@@ -392,3 +392,13 @@ def test_read_image_bytes_rejects_unknown(tmp_path) -> None:
     path.write_bytes(b"not an image at all")
     with pytest.raises(ValueError):
         read_image_bytes(path)
+
+
+# ---------------------------------------------------------------------------
+# その他のテスト
+# ---------------------------------------------------------------------------
+def test_adapter_is_importable_from_package_root() -> None:
+    """README に記載の import 経路が有効であること（devkit 不要）。"""
+    from jidohub.datasets.nuscenes import NuScenesAdapter
+
+    assert NuScenesAdapter is not None

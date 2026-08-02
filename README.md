@@ -105,3 +105,16 @@ ruff check . && ruff format --check . && mypy
 `tests/test_conversions.py` は **devkit なし**で通ります（変換ロジックが devkit 非依存である
 ことの検証）。`tests/test_adapter.py` も偽 devkit の stub で完結し、nuScenes 本体を必要としません。
 設計上の判断（変換ロジックの純粋関数への隔離、nuScenes と標準スキーマの差異）は `CLAUDE.md` を参照。
+
+## 実データでの疎通確認
+
+stub テストでは検証できない実データの妥当性（変換行列の向き、寸法の並び、
+座標系）を確認します。CI では実行しません。
+
+```bash
+python scripts/smoke_real_data.py --dataroot /data/nuscenes --version v1.0-mini
+python scripts/smoke_real_data.py --dataroot /data/nuscenes --version v1.0-mini --can-bus
+```
+
+`--can-bus` には **CAN bus 拡張の別ダウンロード**が必要です（`<dataroot>/can_bus/`）。
+未取得の場合 `ego_state` は `None` になり、他の項目は正常に動作します。

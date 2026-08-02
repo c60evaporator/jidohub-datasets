@@ -83,7 +83,7 @@ disable_error_code = ["no-any-return"]
 
 [[tool.mypy.overrides]]
 # テストは fixture 引数が未注釈で、スキーマの Optional フィールドへのアクセスで
-# union-attr が多発する。テストでは型定義の厳格さを求めない。
-module = ["tests.*", "conftest", "make_fixtures"]
+# union-attr が多発する。開発用スクリプトも同様（ライブラリ本体 src は厳格のまま）。
+module = ["tests.*", "conftest", "make_fixtures", "smoke_real_data", "scripts.*"]
 disallow_untyped_defs = false
 disable_error_code = ["union-attr", "arg-type", "index"]
