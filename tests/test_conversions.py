@@ -18,12 +18,12 @@ import pytest
 from jidohub.core.geometry import (
     quaternion_to_rotation_matrix,
     quaternion_to_yaw,
+    rotation_matrix_to_quaternion,
     yaw_to_quaternion,
 )
 from jidohub.core.schemas import DrivingCommand
 
 from jidohub.datasets.nuscenes.conversions import (
-    _quaternion_from_rotation_matrix,
     box_from_annotation,
     driving_command_from_future_positions,
     ego_state_from_can,
@@ -197,7 +197,7 @@ def test_driving_command_from_lateral_displacement(
 
 
 # ---------------------------------------------------------------------------
-# _quaternion_from_rotation_matrix（数値安定性 / Shepperd 法の分岐）
+# rotation_matrix_to_quaternion（数値安定性 / Shepperd 法の分岐）
 # ---------------------------------------------------------------------------
 
 
@@ -206,9 +206,9 @@ def test_driving_command_from_lateral_displacement(
     [0.0, math.pi / 4, math.pi / 2, math.pi - 1e-6, -math.pi / 3],
 )
 def test_quaternion_from_rotation_matrix_roundtrip(yaw: float) -> None:
-    # yaw≒π（w が 0 に近い領域）を含め、Shepperd 法の分岐を通す。
+    # yaw≒π（w が 0 に近い領域）を含め、rotation_matrix_to_quaternion の分岐を通す。
     matrix = quaternion_to_rotation_matrix(yaw_to_quaternion(yaw))
-    quaternion = _quaternion_from_rotation_matrix(matrix)
+    quaternion = rotation_matrix_to_quaternion(matrix)
     # 符号の自由度があるため成分ではなく回転行列 / yaw で比較する。
     np.testing.assert_allclose(quaternion_to_rotation_matrix(quaternion), matrix, atol=1e-9)
     assert quaternion_to_yaw(quaternion) == pytest.approx(yaw, abs=1e-6)

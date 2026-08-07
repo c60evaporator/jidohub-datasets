@@ -18,7 +18,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import numpy as np
-from jidohub.core.geometry import invert_transform, quaternion_to_rotation_matrix
+from jidohub.core.geometry import (
+    invert_transform,
+    quaternion_to_rotation_matrix,
+    rotation_matrix_to_quaternion,
+)
 from jidohub.core.schemas import Box3D, DrivingCommand, EgoState
 
 __all__ = [
@@ -132,7 +136,7 @@ def box_from_annotation(
     # 姿勢も ego 座標系へ回す。回転行列の合成をクォータニオンに戻さず、
     # Box3D.rotation にはクォータニオンが必要なため行列から変換する
     orientation_global = quaternion_to_rotation_matrix(rotation)
-    rotation_ego = _quaternion_from_rotation_matrix(rotation_matrix @ orientation_global)
+    rotation_ego = rotation_matrix_to_quaternion(rotation_matrix @ orientation_global)
 
     velocity_ego: np.ndarray | None = None
     if velocity_global is not None:
@@ -354,41 +358,3 @@ def future_ego_positions(
     if not positions:
         return np.zeros((0, 2), dtype=np.float64)
     return np.asarray(positions, dtype=np.float64)
-
-
-def _quaternion_from_rotation_matrix(matrix: np.ndarray) -> np.ndarray:
-    """3x3 回転行列を ``(w, x, y, z)`` のクォータニオンに変換する。
-
-    数値的に安定な Shepperd 法（対角成分の最大値で場合分けする）を用いる。
-    素朴な実装は ``w`` が 0 に近い場合に精度を失うため。
-    """
-    m = np.asarray(matrix, dtype=np.float64)
-    trace = m[0, 0] + m[1, 1] + m[2, 2]
-
-    if trace > 0.0:
-        scale = np.sqrt(trace + 1.0) * 2.0
-        w = 0.25 * scale
-        x = (m[2, 1] - m[1, 2]) / scale
-        y = (m[0, 2] - m[2, 0]) / scale
-        z = (m[1, 0] - m[0, 1]) / scale
-    elif m[0, 0] > m[1, 1] and m[0, 0] > m[2, 2]:
-        scale = np.sqrt(1.0 + m[0, 0] - m[1, 1] - m[2, 2]) * 2.0
-        w = (m[2, 1] - m[1, 2]) / scale
-        x = 0.25 * scale
-        y = (m[0, 1] + m[1, 0]) / scale
-        z = (m[0, 2] + m[2, 0]) / scale
-    elif m[1, 1] > m[2, 2]:
-        scale = np.sqrt(1.0 + m[1, 1] - m[0, 0] - m[2, 2]) * 2.0
-        w = (m[0, 2] - m[2, 0]) / scale
-        x = (m[0, 1] + m[1, 0]) / scale
-        y = 0.25 * scale
-        z = (m[1, 2] + m[2, 1]) / scale
-    else:
-        scale = np.sqrt(1.0 + m[2, 2] - m[0, 0] - m[1, 1]) * 2.0
-        w = (m[1, 0] - m[0, 1]) / scale
-        x = (m[0, 2] + m[2, 0]) / scale
-        y = (m[1, 2] + m[2, 1]) / scale
-        z = 0.25 * scale
-
-    quaternion = np.array([w, x, y, z], dtype=np.float64)
-    return quaternion / np.linalg.norm(quaternion)
